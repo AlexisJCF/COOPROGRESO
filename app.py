@@ -170,6 +170,7 @@ PARENTESCOS = ["Principal", "Cónyuge", "Hijo(a)", "Padre", "Madre", "Hermano(a)
 NIVEL_ESCOLAR = ["Ninguno", "Primaria", "Secundaria", "Técnico", "Tecnólogo", "Pregrado", "Posgrado"]
 CALIDADES = ["Excelente", "Buena", "Regular", "Baja", "No tiene"]
 UBICACION_PRODUCCION = ["Patio", "Predio Principal", "Predio Adicional"]
+
 # ========== AUTORIZACIÓN TRATAMIENTO DE DATOS (LEY 1581 DE 2012) ==========
 TEXTO_AUTORIZACION_DATOS = """
 **AUTORIZACIÓN PARA EL TRATAMIENTO DE DATOS PERSONALES**
@@ -357,7 +358,7 @@ def step1():
         col1, col2 = st.columns(2)
         with col1:
             reg_date = st.date_input("Fecha de registro *", value=date.today(), max_value=date.today())
-            reg_type = st.selectbox("Tipo *", ["INICIAL", "ACTUAL"])
+            reg_type = st.selectbox("Tipo *", ["Inventario inicial", "Actualización"])
         with col2:
             reason = st.text_area("Razón del levantamiento")
             signature = st.checkbox("Firma del productor asociado")
@@ -1036,7 +1037,7 @@ def view_records():
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        tipo = st.selectbox("Filtrar por tipo", ["Todos", "INICIAL", "ACTUAL"])
+        tipo = st.selectbox("Filtrar por tipo", ["Todos", "Inventario inicial", "Actualización"])
     with col2:
         fecha_inicio = st.date_input("Fecha desde", value=None)
     with col3:
@@ -1124,8 +1125,8 @@ def show_statistics():
         return
     
     total = client.table("survey_registry").select("count", count="exact").execute()
-    inicial = client.table("survey_registry").select("count", count="exact").eq("type", "INICIAL").execute()
-    actual = client.table("survey_registry").select("count", count="exact").eq("type", "ACTUAL").execute()
+    inicial = client.table("survey_registry").select("count", count="exact").eq("type", "Inventario inicial").execute()
+    actual = client.table("survey_registry").select("count", count="exact").eq("type", "Actualización").execute()
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -1139,7 +1140,7 @@ def show_statistics():
         st.markdown(f"""
         <div class="metric-card" style="background: linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%);">
             <div class="value">{inicial.count}</div>
-            <div class="label">Registros Iniciales</div>
+            <div class="label">Inventarios Iniciales</div>
         </div>
         """, unsafe_allow_html=True)
     with col3:
@@ -1987,10 +1988,10 @@ def main():
                 with col1:
                     st.metric("📋 Total Registros", total.count)
                 with col2:
-                    inicial = client.table("survey_registry").select("count", count="exact").eq("type", "INICIAL").execute()
-                    st.metric("📝 Registros Iniciales", inicial.count)
+                    inicial = client.table("survey_registry").select("count", count="exact").eq("type", "Inventario inicial").execute()
+                    st.metric("📝 Inventarios Iniciales", inicial.count)
                 with col3:
-                    actual = client.table("survey_registry").select("count", count="exact").eq("type", "ACTUAL").execute()
+                    actual = client.table("survey_registry").select("count", count="exact").eq("type", "Actualización").execute()
                     st.metric("🔄 Actualizaciones", actual.count)
     else:
         st.info("📝 Completa el formulario para registrar tus datos. Solo el administrador puede ver la información.")
