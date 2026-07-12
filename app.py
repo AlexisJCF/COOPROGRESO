@@ -26,8 +26,8 @@ def scroll_to_top():
                 }
             }
             forceScrollToTop();
-            setTimeout(forceScrollToTop, 100);
-            setTimeout(forceScrollToTop, 300);
+            setTimeout(forceScrollToTop, 200);
+            setTimeout(forceScrollToTop, 500);
         </script>
         <style>
             #scroll-top-anchor {
@@ -42,7 +42,6 @@ def scroll_to_top():
 def go_to_step(step_number):
     """Cambia de paso y fuerza scroll al inicio"""
     st.session_state.step = step_number
-    # Forzar scroll usando múltiples métodos
     st.markdown("""
         <div id="nav-scroll-top"></div>
         <script>
@@ -54,8 +53,8 @@ def go_to_step(step_number):
                 if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'});
             }
             forceScroll();
-            setTimeout(forceScroll, 100);
-            setTimeout(forceScroll, 300);
+            setTimeout(forceScroll, 200);
+            setTimeout(forceScroll, 500);
         </script>
         <style>
             #nav-scroll-top {
@@ -65,10 +64,17 @@ def go_to_step(step_number):
             }
         </style>
     """, unsafe_allow_html=True)
-    st.rerun()
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+# ========== CONFIGURACIÓN DE PÁGINA ==========
+st.set_page_config(
+    page_title="COOPROGRESO - Sistema de Capacidad Productiva",
+    page_icon="🌾",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # ========== CONFIGURACIÓN DE PÁGINA ==========
 st.set_page_config(
@@ -265,6 +271,54 @@ def formato_cop(valor):
         return "$ 0"
     return f"$ {valor:,.0f}".replace(",", ".")
 
+# ========== FUNCIÓN PARA PROYECCIÓN ANUAL ==========
+def calcular_proyeccion_anual(cantidad, periodicidad):
+    """
+    Calcula la proyección anual basada en la cantidad y periodicidad.
+    
+    Args:
+        cantidad (float): Cantidad producida por periodo
+        periodicidad (str): Periodicidad seleccionada
+    
+    Returns:
+        float: Proyección anual
+    """
+    factores = {
+        "Diaria": 365,
+        "Semanal": 52,
+        "Quincenal": 24,
+        "Mensual": 12,
+        "Bimestral": 6,
+        "Trimestral": 4,
+        "Semestral": 2,
+        "Anual": 1
+    }
+    
+    factor = factores.get(periodicidad, 1)
+    return cantidad * factor
+
+def get_periodicidad_factor(periodicidad):
+    """
+    Retorna el factor de conversión a anual para una periodicidad.
+    
+    Args:
+        periodicidad (str): Periodicidad seleccionada
+    
+    Returns:
+        str: Descripción del factor
+    """
+    factores = {
+        "Diaria": "× 365 días",
+        "Semanal": "× 52 semanas",
+        "Quincenal": "× 24 quincenas",
+        "Mensual": "× 12 meses",
+        "Bimestral": "× 6 bimestres",
+        "Trimestral": "× 4 trimestres",
+        "Semestral": "× 2 semestres",
+        "Anual": "× 1 año"
+    }
+    return factores.get(periodicidad, "× 1")
+
 # ========== FUNCIÓN DE FOTOS ==========
 def upload_photo(survey_id, photo_bytes, description, photo_type):
     try:
@@ -346,13 +400,229 @@ def save_survey(data):
     
     return survey_id
 
+# ========== FUNCIÓN PARA PROYECCIÓN ANUAL GENERAL ==========
+def show_annual_projection():
+    """Muestra la proyección anual de producción y servicios"""
+    st.header("📊 Proyección Anual de Producción y Servicios")
+    st.info("Esta proyección calcula el valor anual estimado basado en la periodicidad seleccionada por cada productor.")
+    
+    client = get_admin_client()
+    if not client:
+        return
+    
+    try:
+        # ========== OBTENER DATOS ==========
+        # Obtener todos los registros
+        surveys = client.table("survey_registry").select("*").execute().data
+        
+        if not surveys:
+            st.warning("No hay registros en la base de datos")
+            return
+        
+        # ========== PROCESAR PRODUCCIONES ==========
+        productions = client.table("production_capacity").select("*").execute().data
+        services = client.table("service_capacity").select("*").execute().data
+        
+        # ========== CALCULAR PROYECCIONES ==========
+        proyeccion_data = []
+        
+        # Procesar cada producción
+        total_anual_produccion = 0
+        total_anual_servicios = 0
+        
+        # ---- Producciones ----
+        st.subheader("🌽 Proyección Anual de Producciones")
+        
+        prod_proyecciones = []
+        for prod in productions:
+            # Obtener datos del productor
+            survey_id = prod.get("survey_id")
+            survey = next((s for s in surveys if s["id"] == survey_id), None)
+            
+            productor = "Desconocido"
+            if survey:
+                family = client.table("family_members").select("*").eq("survey_id", survey_id).eq("is_main", True).execute().data
+                if family:
+                    productor = f"{family[0].get('nombres', '')} {family[0].get('apellidos', '')}"
+            
+            cantidad = prod.get("quantity_produced", 0)
+            precio_unitario = prod.get("unit_price", 0)
+            periodicidad = prod.get("frequency", "Anual")
+            
+            # Calcular proyección anual
+            cantidad_anual = calcular_proyeccion_anual(cantidad, periodicidad)
+            valor_anual = cantidad_anual * precio_unitario
+            
+            prod_proyecciones.append({
+                "Productor": productor,
+                "Producto": prod.get("product_name", ""),
+                "Cantidad por Periodo": cantidad,
+                "Unidad": prod.get("measure_unit", ""),
+                "Periodicidad": periodicidad,
+                "Factor": get_periodicidad_factor(periodicidad),
+                "Cantidad Anual": cantidad_anual,
+                "Precio Unitario": precio_unitario,
+                "Valor Anual Estimado": valor_anual
+            })
+            
+            total_anual_produccion += valor_anual
+        
+        # ---- Servicios ----
+        st.subheader("🛠️ Proyección Anual de Servicios")
+        
+        serv_proyecciones = []
+        for serv in services:
+            survey_id = serv.get("survey_id")
+            survey = next((s for s in surveys if s["id"] == survey_id), None)
+            
+            productor = "Desconocido"
+            if survey:
+                family = client.table("family_members").select("*").eq("survey_id", survey_id).eq("is_main", True).execute().data
+                if family:
+                    productor = f"{family[0].get('nombres', '')} {family[0].get('apellidos', '')}"
+            
+            cantidad = serv.get("quantity", 0)
+            precio_unitario = serv.get("price", 0)
+            periodicidad = serv.get("frequency", "Anual")
+            
+            # Calcular proyección anual
+            cantidad_anual = calcular_proyeccion_anual(cantidad, periodicidad)
+            valor_anual = cantidad_anual * precio_unitario
+            
+            serv_proyecciones.append({
+                "Productor": productor,
+                "Servicio": serv.get("service_name", ""),
+                "Cantidad por Periodo": cantidad,
+                "Unidad": serv.get("measure_unit", ""),
+                "Periodicidad": periodicidad,
+                "Factor": get_periodicidad_factor(periodicidad),
+                "Cantidad Anual": cantidad_anual,
+                "Precio Unitario": precio_unitario,
+                "Valor Anual Estimado": valor_anual
+            })
+            
+            total_anual_servicios += valor_anual
+        
+        # ========== MOSTRAR RESULTADOS ==========
+        # Tarjetas de resumen
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric(
+                "🌽 Producción Anual Estimada",
+                formato_cop(total_anual_produccion)
+            )
+        with col2:
+            st.metric(
+                "🛠️ Servicios Anuales Estimados",
+                formato_cop(total_anual_servicios)
+            )
+        with col3:
+            st.metric(
+                "💰 Ingreso Anual Estimado",
+                formato_cop(total_anual_produccion + total_anual_servicios)
+            )
+        with col4:
+            total_prod = len(productions)
+            total_serv = len(services)
+            st.metric(
+                "📊 Total Registros",
+                f"{total_prod} productos, {total_serv} servicios"
+            )
+        
+        st.markdown("---")
+        
+        # ---- Tabla de Proyecciones de Producción ----
+        if prod_proyecciones:
+            st.subheader("📋 Detalle de Proyecciones de Producción")
+            
+            df_prod = pd.DataFrame(prod_proyecciones)
+            
+            # Formatear columnas de dinero
+            for col in ["Precio Unitario", "Valor Anual Estimado"]:
+                if col in df_prod.columns:
+                    df_prod[col] = df_prod[col].apply(lambda x: formato_cop(x))
+            
+            # Formatear columnas numéricas
+            for col in ["Cantidad por Periodo", "Cantidad Anual"]:
+                if col in df_prod.columns:
+                    df_prod[col] = df_prod[col].apply(lambda x: f"{x:,.2f}")
+            
+            st.dataframe(df_prod, width='stretch')
+            
+            # Gráfico de producción anual
+            st.subheader("📊 Producción Anual por Producto")
+            
+            # Agrupar por producto
+            prod_summary = df_prod.groupby("Producto")["Valor Anual Estimado"].sum().reset_index()
+            prod_summary["Valor Anual Estimado"] = prod_summary["Valor Anual Estimado"].str.replace("$ ", "").str.replace(",", "").str.replace(".", "").astype(float)
+            
+            if not prod_summary.empty and len(prod_summary) > 0:
+                fig = px.bar(
+                    prod_summary.sort_values("Valor Anual Estimado", ascending=False).head(15),
+                    x="Producto",
+                    y="Valor Anual Estimado",
+                    title="Top 15 Productos por Valor Anual Estimado",
+                    labels={"Valor Anual Estimado": "Valor Anual (COP)"}
+                )
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, width='stretch')
+        else:
+            st.info("No hay producciones registradas")
+        
+        st.markdown("---")
+        
+        # ---- Tabla de Proyecciones de Servicios ----
+        if serv_proyecciones:
+            st.subheader("📋 Detalle de Proyecciones de Servicios")
+            
+            df_serv = pd.DataFrame(serv_proyecciones)
+            
+            # Formatear columnas de dinero
+            for col in ["Precio Unitario", "Valor Anual Estimado"]:
+                if col in df_serv.columns:
+                    df_serv[col] = df_serv[col].apply(lambda x: formato_cop(x))
+            
+            # Formatear columnas numéricas
+            for col in ["Cantidad por Periodo", "Cantidad Anual"]:
+                if col in df_serv.columns:
+                    df_serv[col] = df_serv[col].apply(lambda x: f"{x:,.2f}")
+            
+            st.dataframe(df_serv, use_container_width=True)
+            
+            # Gráfico de servicios anuales
+            st.subheader("📊 Servicios Anuales por Servicio")
+            
+            serv_summary = df_serv.groupby("Servicio")["Valor Anual Estimado"].sum().reset_index()
+            serv_summary["Valor Anual Estimado"] = serv_summary["Valor Anual Estimado"].str.replace("$ ", "").str.replace(",", "").str.replace(".", "").astype(float)
+            
+            if not serv_summary.empty and len(serv_summary) > 0:
+                fig = px.bar(
+                    serv_summary.sort_values("Valor Anual Estimado", ascending=False).head(15),
+                    x="Servicio",
+                    y="Valor Anual Estimado",
+                    title="Top 15 Servicios por Valor Anual Estimado",
+                    labels={"Valor Anual Estimado": "Valor Anual (COP)"}
+                )
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, width='stretch')
+        else:
+            st.info("No hay servicios registrados")
+        
+        # ========== BOTÓN PARA EXPORTAR PROYECCIÓN ==========
+        st.markdown("---")
+        st.subheader("📤 Exportar Proyección Anual")
+        
+        if st.button("📥 Exportar Proyección Anual a Excel", width='stretch'):
+            export_annual_projection(prod_proyecciones, serv_proyecciones)
+            
+    except Exception as e:
+        st.error(f"Error al calcular proyecciones: {e}")
+
 # ========== PASO 1: PRODUCTOR PRINCIPAL ==========
 def step1():
     scroll_to_top()
-    # 🔴 AGREGAR ESTO PARA FORZAR EL SCROLL
     st.markdown('<div style="height: 0px;"></div>', unsafe_allow_html=True)
     st.header("📋 Paso 1: Datos del levantamiento y productor principal")
-    # ... resto del código
     
     with st.form("step1_form"):
         col1, col2 = st.columns(2)
@@ -394,7 +664,6 @@ def step1():
             else:
                 st.info("📊 **Sisbén IV**\n\nSelecciona tu subgrupo según tu ficha Sisbén.\n\nSi no tienes Sisbén, selecciona **'No aplica'**.")
         
-# ========== 🔐 NUEVA SECCIÓN: AUTORIZACIÓN TRATAMIENTO DE DATOS ==========
         st.markdown("---")
         st.subheader("🔐 Autorización para el Tratamiento de Datos Personales")
         st.markdown("""
@@ -407,14 +676,12 @@ def step1():
         </div>
         """, unsafe_allow_html=True)
         
-        # Checkbox de autorización
         autorizacion_datos = st.checkbox(
             "✅ He leído y acepto la autorización para el tratamiento de mis datos personales "
             "de acuerdo con la Ley 1581 de 2012 *",
             key="autorizacion_datos"
         )
         
-        # Mostrar el texto completo de la autorización
         with st.expander("📄 Ver texto completo de la autorización"):
             nombre_completo = f"{nombres} {apellidos}" if nombres and apellidos else "[NOMBRE COMPLETO]"
             tipo_id = id_type if id_type else "[TIPO DE IDENTIFICACIÓN]"
@@ -432,7 +699,6 @@ def step1():
         
         submitted = st.form_submit_button("Siguiente →")
         if submitted:
-            # Validar campos obligatorios
             if not nombres or not apellidos or not id_num or not birth:
                 st.error("Nombres, apellidos, identificación y fecha de nacimiento son obligatorios")
             elif not autorizacion_datos:
@@ -468,14 +734,12 @@ def step1():
                     }]
                 })
                 go_to_step(2)
-                
+
 # ========== PASO 2: FAMILIARES ==========
 def step2():
     scroll_to_top()
-    # 🔴 AGREGAR ESTO PARA FORZAR EL SCROLL
     st.markdown('<div style="height: 0px;"></div>', unsafe_allow_html=True)
     st.header("👨‍👩‍👧‍👦 Paso 2: Miembros de la familia")
-    # ... resto del código
     st.info("Agrega todos los miembros de tu familia. El productor principal ya está incluido.")
     
     if "extra_family" not in st.session_state:
@@ -560,19 +824,17 @@ def step2():
     with col_b:
         if st.button("← Atrás"):
             st.session_state.temp_data["family_members"].extend(st.session_state.extra_family)
-            go_to_step(1)  # ← CAMBIADO
+            go_to_step(1)
     with col_n:
         if st.button("Siguiente →"):
             st.session_state.temp_data["family_members"].extend(st.session_state.extra_family)
-            go_to_step(3)  # ← CAMBIADO
+            go_to_step(3)
 
 # ========== PASO 3: VIVIENDA Y PREDIO ==========
 def step3():
     scroll_to_top()
-    # 🔴 AGREGAR ESTO PARA FORZAR EL SCROLL
     st.markdown('<div style="height: 0px;"></div>', unsafe_allow_html=True)
     st.header("🏠 Paso 3: Vivienda y Predios")
-    # ... resto del código
     
     if "predios_adicionales" not in st.session_state:
         st.session_state.predios_adicionales = []
@@ -662,7 +924,6 @@ def step3():
             predio_nombre = st.text_input("Nombre del predio adicional", key="predio_nombre")
             predio_prop = st.selectbox("Tipo propiedad", TIPOS_PROPIEDAD, key="predio_prop")
             predio_ubicacion = st.text_input("Ubicación", key="predio_ubicacion")
-            # 🔴 AGREGAR ESTE CAMPO
             predio_catastral = st.text_input("ID Catastral del predio adicional", key="predio_catastral")
         with colA2:
             predio_area = st.number_input("Área (m²)", min_value=0.0, step=100.0, key="predio_area")
@@ -680,7 +941,6 @@ def step3():
                     "total_area_m2": predio_area,
                     "tipo_suelo": predio_suelo,
                     "land_type": predio_uso,
-                    "cadastral_id": "",
                     "is_floodable": False,
                     "water_quality": "",
                     "slope_degree": "",
@@ -731,18 +991,16 @@ def step3():
                 "real_estate_registration": reg_inmob
             }
             st.session_state.temp_data["predios_adicionales"] = st.session_state.predios_adicionales
-            go_to_step(4)  # ← CAMBIADO
+            go_to_step(4)
     
     if st.button("← Atrás"):
-        go_to_step(2)  # ← CAMBIADO
+        go_to_step(2)
 
 # ========== PASO 4: PRODUCTOS ==========
 def step4():
     scroll_to_top()
-    # 🔴 AGREGAR ESTO PARA FORZAR EL SCROLL
     st.markdown('<div style="height: 0px;"></div>', unsafe_allow_html=True)
     st.header("🌽 Paso 4: ¿Qué produce? (Bienes)")
-    # ... resto del código
     st.info("Agrega los productos que produces. Puedes asignar cada producto al patio, predio principal o predios adicionales.")
     
     if "productions" not in st.session_state.temp_data:
@@ -781,7 +1039,6 @@ def step4():
         st.subheader("📍 Ubicación de la producción")
         ubicacion = st.selectbox("¿Dónde se produce este producto?", UBICACION_PRODUCCION, key="ubicacion_prod")
         
-        # 🔴 CAMBIO: Solo mostrar selección de predio adicional si la ubicación es "Predio Adicional"
         ubicacion_completa = ubicacion
         if ubicacion == "Predio Adicional":
             if st.session_state.predios_adicionales:
@@ -919,7 +1176,6 @@ def step5():
         st.subheader("📤 Finalizar formulario")
         st.info("Revisa que todos los datos estén correctos antes de guardar.")
         
-        # ✅ CORREGIDO
         guardar = st.form_submit_button("✅ Guardar todo en la base de datos", width='stretch')
     
     if guardar:
@@ -987,7 +1243,6 @@ def step5():
                     else:
                         st.write("- No hay servicios registrados")
             
-            # ✅ CORREGIDO
             if st.button("📝 Registrar otro productor", width='stretch'):
                 for key in list(st.session_state.keys()):
                     if key not in ["authenticated", "admin_username", "admin_mode"]:
@@ -1171,7 +1426,7 @@ def show_statistics():
             top = df["product_name"].value_counts().head(10)
             fig = px.bar(x=top.values, y=top.index, orientation='h', title="Productos más producidos", labels={'x': 'Cantidad de productores', 'y': 'Producto'}, color=top.values, color_continuous_scale='Viridis')
             fig.update_layout(height=400, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.info("No hay productos registrados")
     
@@ -1183,7 +1438,7 @@ def show_statistics():
             top = df["service_name"].value_counts().head(10)
             fig = px.bar(x=top.values, y=top.index, orientation='h', title="Servicios más ofrecidos", labels={'x': 'Cantidad de oferentes', 'y': 'Servicio'}, color=top.values, color_continuous_scale='Plasma')
             fig.update_layout(height=400, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.info("No hay servicios registrados")
     
@@ -1201,7 +1456,7 @@ def show_statistics():
                 fig = px.pie(values=grupos_count.values, names=grupos_count.index, title="Distribución por Grupo Sisbén", color_discrete_sequence=px.colors.sequential.RdBu)
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
     
     with col2:
         st.subheader("📋 Resumen")
@@ -1224,7 +1479,7 @@ def show_statistics():
         ubicacion_sum = df_prod.groupby("ubicacion")["total_price"].sum().reset_index()
         fig = px.bar(ubicacion_sum, x="ubicacion", y="total_price", title="Valor de Producción por Ubicación", labels={'total_price': 'Valor Total (COP)', 'ubicacion': 'Ubicación'}, color="ubicacion", color_discrete_sequence=px.colors.qualitative.Set3)
         fig.update_layout(height=400, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     st.subheader("💰 Resumen de Ingresos")
     col1, col2, col3 = st.columns(3)
@@ -1238,7 +1493,112 @@ def show_statistics():
         st.metric("💰 Servicios Totales", formato_cop(total_serv))
     with col3:
         st.metric("💰 Ingresos Totales", formato_cop(total_prod + total_serv))
-
+        
+        
+# ========== FUNCIÓN PARA RESUMEN DE ÁREAS ==========
+def show_land_summary():
+    """Muestra un resumen de áreas de tierra registradas"""
+    st.subheader("📊 Resumen de Áreas de Tierra")
+    
+    client = get_admin_client()
+    if not client:
+        return
+    
+    try:
+        # Obtener todos los predios
+        lands = client.table("land").select("*").execute().data
+        
+        if not lands:
+            st.info("No hay predios registrados")
+            return
+        
+        # Crear DataFrame
+        df = pd.DataFrame(lands)
+        
+        # Calcular áreas totales
+        total_area = df["total_area_m2"].sum() if "total_area_m2" in df.columns else 0
+        
+        # Obtener producciones para calcular áreas ocupadas
+        productions = client.table("production_capacity").select("*").execute().data
+        df_prod = pd.DataFrame(productions) if productions else pd.DataFrame()
+        
+        # Área ocupada por productos
+        area_productos = df_prod["occupied_area_m2"].sum() if not df_prod.empty and "occupied_area_m2" in df_prod.columns else 0
+        
+        # Área ocupada por servicios
+        services = client.table("service_capacity").select("*").execute().data
+        df_serv = pd.DataFrame(services) if services else pd.DataFrame()
+        area_servicios = df_serv["occupied_area_m2"].sum() if not df_serv.empty and "occupied_area_m2" in df_serv.columns else 0
+        
+        # Mostrar métricas
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("🌳 Área Total Registrada", f"{total_area:,.0f} m²")
+        with col2:
+            st.metric("🌽 Área Ocupada por Productos", f"{area_productos:,.0f} m²")
+        with col3:
+            st.metric("🛠️ Área Ocupada por Servicios", f"{area_servicios:,.0f} m²")
+        with col4:
+            area_ocupada = area_productos + area_servicios
+            porcentaje = (area_ocupada / total_area * 100) if total_area > 0 else 0
+            st.metric("📊 Área Total Ocupada", f"{area_ocupada:,.0f} m² ({porcentaje:.1f}%)")
+        
+        # Tabla detallada por predio
+        st.subheader("📋 Detalle por Predio")
+        
+        detail_data = []
+        for land in lands:
+            land_name = land.get("land_name", "Sin nombre")
+            land_area = land.get("total_area_m2", 0)
+            
+            # Productos en este predio
+            prod_area = 0
+            prod_names = []
+            for prod in productions:
+                ubicacion = prod.get("ubicacion", "")
+                if land_name in ubicacion or "Predio Principal" in ubicacion:
+                    prod_area += prod.get("occupied_area_m2", 0)
+                    prod_names.append(prod.get("product_name", ""))
+            
+            # Servicios en este predio
+            serv_area = 0
+            serv_names = []
+            for serv in services:
+                ubicacion = serv.get("ubicacion", "")
+                if land_name in ubicacion or "Predio Principal" in ubicacion:
+                    serv_area += serv.get("occupied_area_m2", 0)
+                    serv_names.append(serv.get("service_name", ""))
+            
+            detail_data.append({
+                "Predio": land_name,
+                "Área Total (m²)": land_area,
+                "Área Productos (m²)": prod_area,
+                "Área Servicios (m²)": serv_area,
+                "Área Ocupada (m²)": prod_area + serv_area,
+                "% Ocupado": ((prod_area + serv_area) / land_area * 100) if land_area > 0 else 0,
+                "Productos": ", ".join(prod_names[:3]) + ("..." if len(prod_names) > 3 else ""),
+                "Servicios": ", ".join(serv_names[:3]) + ("..." if len(serv_names) > 3 else "")
+            })
+        
+        df_detail = pd.DataFrame(detail_data)
+        st.dataframe(df_detail, width='stretch')
+        
+        # Gráfico de barras
+        st.subheader("📊 Áreas por Predio")
+        if not df_detail.empty:
+            fig = px.bar(
+                df_detail,
+                x="Predio",
+                y=["Área Total (m²)", "Área Ocupada (m²)"],
+                title="Comparación de Áreas por Predio",
+                barmode="group"
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, width='stretch')
+        
+    except Exception as e:
+        st.error(f"Error al generar resumen: {e}")
+        
 # ========== FUNCIONES DE EXPORTACIÓN ==========
 def export_consolidated_excel():
     """Exporta todos los datos en una sola hoja de Excel"""
@@ -1482,6 +1842,59 @@ def export_all_data():
                         
                 except Exception as e:
                     st.error(f"Error al exportar: {e}")
+                    
+# ========== EXPORTAR PROYECCIÓN ANUAL A EXCEL ==========
+def export_annual_projection(prod_proyecciones, serv_proyecciones):
+    """Exporta la proyección anual a un archivo Excel"""
+    output = io.BytesIO()
+    
+    try:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Hoja de Producciones
+            if prod_proyecciones:
+                df_prod = pd.DataFrame(prod_proyecciones)
+                # Reordenar columnas
+                columnas_prod = ["Productor", "Producto", "Cantidad por Periodo", "Unidad", 
+                               "Periodicidad", "Factor", "Cantidad Anual", 
+                               "Precio Unitario", "Valor Anual Estimado"]
+                df_prod = df_prod[[col for col in columnas_prod if col in df_prod.columns]]
+                df_prod.to_excel(writer, sheet_name="Producción Anual", index=False)
+            
+            # Hoja de Servicios
+            if serv_proyecciones:
+                df_serv = pd.DataFrame(serv_proyecciones)
+                columnas_serv = ["Productor", "Servicio", "Cantidad por Periodo", "Unidad",
+                               "Periodicidad", "Factor", "Cantidad Anual",
+                               "Precio Unitario", "Valor Anual Estimado"]
+                df_serv = df_serv[[col for col in columnas_serv if col in df_serv.columns]]
+                df_serv.to_excel(writer, sheet_name="Servicios Anuales", index=False)
+            
+            # Hoja de Resumen
+            resumen = []
+            if prod_proyecciones:
+                total_prod = sum([p["Valor Anual Estimado"] for p in prod_proyecciones])
+                resumen.append({"Concepto": "Total Producción Anual", "Valor": total_prod})
+            if serv_proyecciones:
+                total_serv = sum([s["Valor Anual Estimado"] for s in serv_proyecciones])
+                resumen.append({"Concepto": "Total Servicios Anuales", "Valor": total_serv})
+            if resumen:
+                total = sum([r["Valor"] for r in resumen])
+                resumen.append({"Concepto": "Total Ingresos Anuales Estimados", "Valor": total})
+                df_resumen = pd.DataFrame(resumen)
+                df_resumen["Valor"] = df_resumen["Valor"].apply(lambda x: formato_cop(x))
+                df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
+        
+        st.download_button(
+            label="📥 Descargar Proyección Anual",
+            data=output.getvalue(),
+            file_name=f"proyeccion_anual_{date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width='stretch'
+        )
+        st.success("✅ Proyección anual exportada exitosamente")
+        
+    except Exception as e:
+        st.error(f"Error al exportar: {e}")
 
 # ========== FUNCIÓN PARA ELIMINAR REGISTRO (OPTIMIZADA) ==========
 def delete_survey(survey_id):
@@ -1922,7 +2335,7 @@ def admin_panel():
     st.sidebar.subheader("📊 Panel de Administración")
     admin_option = st.sidebar.radio(
         "Selecciona:",
-        ["📋 Ver Registros", "📈 Estadísticas", "📤 Exportar Datos", "🧹 Limpiar Datos"]
+        ["📋 Ver Registros", "📈 Estadísticas", "📊 Proyección Anual", "📤 Exportar Datos", "🧹 Limpiar Datos"]
     )
     st.sidebar.markdown("---")
     st.sidebar.info("💡 Los datos se actualizan automáticamente")
@@ -1931,6 +2344,8 @@ def admin_panel():
         view_records()
     elif admin_option == "📈 Estadísticas":
         show_statistics()
+    elif admin_option == "📊 Proyección Anual":
+        show_annual_projection()
     elif admin_option == "📤 Exportar Datos":
         export_all_data()
     elif admin_option == "🧹 Limpiar Datos":
